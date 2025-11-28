@@ -81,9 +81,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Prepare build directory
+        run: mkdir -p build
+
       - name: Download build artifacts
-        id: download-artifact
-        continue-on-error: false
         uses: actions/download-artifact@v4
         with:
           name: lambda-deployment-package
