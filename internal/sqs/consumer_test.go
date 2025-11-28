@@ -168,8 +168,18 @@ func TestAlertPayloadTimestampParsing(t *testing.T) {
 				if err != nil {
 					t.Errorf("Unexpected error: %v", err)
 				}
-				if alert.Timestamp.Before(time.Now().Add(-1 * time.Hour)) {
-					t.Error("Timestamp is too old")
+				if alert != nil {
+					// Timestamp zero olmamalı ve mantıklı bir aralıkta olmalı (son 1 yıl içinde veya gelecekte)
+					if alert.Timestamp.IsZero() {
+						t.Error("Timestamp should not be zero")
+					}
+					// Geçmiş timestamp'ler de geçerli olabilir (alert'ler geçmişte olabilir)
+					// Sadece çok eski veya çok gelecekteki timestamp'leri kontrol et
+					oneYearAgo := time.Now().Add(-365 * 24 * time.Hour)
+					oneYearAhead := time.Now().Add(365 * 24 * time.Hour)
+					if alert.Timestamp.Before(oneYearAgo) || alert.Timestamp.After(oneYearAhead) {
+						t.Errorf("Timestamp is out of reasonable range: %v", alert.Timestamp)
+					}
 				}
 			}
 		})
