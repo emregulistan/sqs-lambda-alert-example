@@ -86,6 +86,8 @@ jobs:
         with:
           name: lambda-deployment-package
           path: build
+          continue-on-error: false
+          if-no-files-found: error
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
