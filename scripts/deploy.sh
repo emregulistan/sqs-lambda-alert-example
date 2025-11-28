@@ -12,6 +12,41 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Lambda fonksiyonunun hazır olmasını bekleyen helper fonksiyon
+wait_for_lambda_ready() {
+    local function_name=$1
+    local region=$2
+    local max_retries=${3:-60}
+    local retry_count=0
+    
+    echo -e "${BLUE}Waiting for Lambda function to be ready...${NC}"
+    
+    while [ $retry_count -lt $max_retries ]; do
+        STATUS=$(aws lambda get-function \
+            --function-name "$function_name" \
+            --region "$region" \
+            --query 'Configuration.LastUpdateStatus' \
+            --output text 2>/dev/null || echo "Unknown")
+        
+        if [ "$STATUS" = "Successful" ]; then
+            echo -e "${GREEN}Lambda function is ready!${NC}"
+            return 0
+        elif [ "$STATUS" = "Failed" ]; then
+            echo -e "${RED}Lambda function update failed!${NC}"
+            return 1
+        else
+            retry_count=$((retry_count + 1))
+            if [ $((retry_count % 5)) -eq 0 ]; then
+                echo -e "${YELLOW}Still waiting... ($retry_count/$max_retries) - Status: $STATUS${NC}"
+            fi
+            sleep 2
+        fi
+    done
+    
+    echo -e "${YELLOW}Warning: Lambda function did not become ready within timeout${NC}"
+    return 1
+}
+
 echo -e "${GREEN}Starting deployment process...${NC}"
 
 # Proje root dizinine git
@@ -104,29 +139,55 @@ else
     # Lambda fonksiyonunu güncelle
     echo -e "${YELLOW}Updating existing Lambda function...${NC}"
     
+    # Önce code'u güncelle
+    echo -e "${BLUE}Updating function code...${NC}"
     aws lambda update-function-code \
         --function-name "$LAMBDA_FUNCTION_NAME" \
         --zip-file fileb://build/alert-lambda.zip \
         --region "$AWS_REGION" \
         > /dev/null
     
-    # Environment variables güncelle
+    # Code güncellemesinin tamamlanmasını bekle
+    wait_for_lambda_ready "$LAMBDA_FUNCTION_NAME" "$AWS_REGION" 60
+    
+    # Environment variables güncelle (sadece değiştiyse)
     if [ -n "$SLACK_WEBHOOK_URL" ]; then
-        aws lambda update-function-configuration \
-            --function-name "$LAMBDA_FUNCTION_NAME" \
-            --environment "Variables={SLACK_WEBHOOK_URL=$SLACK_WEBHOOK_URL}" \
-            --region "$AWS_REGION" \
-            > /dev/null
+        echo -e "${BLUE}Updating function configuration...${NC}"
+        
+        # Retry mekanizması ile configuration update
+        MAX_RETRIES=10
+        RETRY_COUNT=0
+        CONFIG_UPDATED=false
+        
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$CONFIG_UPDATED" = false ]; do
+            if aws lambda update-function-configuration \
+                --function-name "$LAMBDA_FUNCTION_NAME" \
+                --environment "Variables={SLACK_WEBHOOK_URL=$SLACK_WEBHOOK_URL}" \
+                --region "$AWS_REGION" \
+                > /dev/null 2>&1; then
+                CONFIG_UPDATED=true
+                echo -e "${GREEN}Function configuration update initiated!${NC}"
+                
+                # Configuration update'in tamamlanmasını bekle
+                wait_for_lambda_ready "$LAMBDA_FUNCTION_NAME" "$AWS_REGION" 60
+                break
+            else
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                    echo -e "${YELLOW}Configuration update failed, retrying in 3 seconds... ($RETRY_COUNT/$MAX_RETRIES)${NC}"
+                    sleep 3
+                fi
+            fi
+        done
+        
+        if [ "$CONFIG_UPDATED" = false ]; then
+            echo -e "${YELLOW}Warning: Failed to update function configuration after $MAX_RETRIES retries${NC}"
+            echo -e "${YELLOW}You may need to update it manually from AWS Console${NC}"
+        fi
     fi
     
     echo -e "${GREEN}Lambda function updated successfully!${NC}"
 fi
-
-# Lambda fonksiyonun hazır olmasını bekle
-echo -e "\n${YELLOW}Waiting for Lambda function to be ready...${NC}"
-aws lambda wait function-updated \
-    --function-name "$LAMBDA_FUNCTION_NAME" \
-    --region "$AWS_REGION"
 
 # Event source mapping kontrolü
 echo -e "\n${YELLOW}Setting up SQS event source mapping...${NC}"
