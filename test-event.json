@@ -1,0 +1,37 @@
+{
+  "Records": [
+    {
+      "messageId": "test-message-1",
+      "receiptHandle": "test-receipt-handle",
+      "body": "{\"level\":\"error\",\"service\":\"api-gateway\",\"message\":\"High latency detected on /api/users endpoint\",\"timestamp\":\"2025-11-28T10:00:00Z\",\"metadata\":{\"latency_ms\":5000,\"endpoint\":\"/api/users\",\"method\":\"GET\"}}",
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "SentTimestamp": "1701187200000",
+        "SenderId": "AIDAIENQZJOLO23YVJ4VO",
+        "ApproximateFirstReceiveTimestamp": "1701187200000"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "test-md5",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:alert-queue",
+      "awsRegion": "us-east-1"
+    },
+    {
+      "messageId": "test-message-2",
+      "receiptHandle": "test-receipt-handle-2",
+      "body": "{\"level\":\"warning\",\"service\":\"database\",\"message\":\"Connection pool nearing capacity\",\"timestamp\":\"2025-11-28T10:05:00Z\",\"metadata\":{\"current_connections\":95,\"max_connections\":100}}",
+      "attributes": {
+        "ApproximateReceiveCount": "1",
+        "SentTimestamp": "1701187500000",
+        "SenderId": "AIDAIENQZJOLO23YVJ4VO",
+        "ApproximateFirstReceiveTimestamp": "1701187500000"
+      },
+      "messageAttributes": {},
+      "md5OfBody": "test-md5-2",
+      "eventSource": "aws:sqs",
+      "eventSourceARN": "arn:aws:sqs:us-east-1:123456789012:alert-queue",
+      "awsRegion": "us-east-1"
+    }
+  ]
+}
+

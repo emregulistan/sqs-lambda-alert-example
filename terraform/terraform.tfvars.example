@@ -1,0 +1,15 @@
+# AWS Configuration
+aws_region = "us-east-1"
+
+# Lambda Configuration
+lambda_function_name = "alert-lambda"
+lambda_memory        = 128
+lambda_timeout       = 30
+lambda_architecture  = "arm64"  # or "x86_64"
+
+# SQS Configuration
+sqs_queue_name = "alert-queue"
+
+# Slack Configuration (optional)
+# slack_webhook_url = "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+

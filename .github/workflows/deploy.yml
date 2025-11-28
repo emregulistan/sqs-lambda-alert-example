@@ -1,0 +1,146 @@
+name: Deploy Lambda Function
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.21'
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: |
+          chmod +x scripts/test.sh
+          ./scripts/test.sh
+
+      - name: Upload coverage to Codecov (optional)
+        if: github.event_name == 'push'
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/coverage.out
+          fail_ci_if_error: false
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build Lambda function
+        run: |
+          chmod +x scripts/build.sh
+          ARCH=arm64 ./scripts/build.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lambda-deployment-package
+          path: build/alert-lambda.zip
+          retention-days: 5
+
+  deploy:
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment:
+      name: production
+      url: https://console.aws.amazon.com/lambda/home?region=${{ secrets.AWS_REGION }}#/functions/${{ secrets.LAMBDA_FUNCTION_NAME }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: lambda-deployment-package
+          path: build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Deploy to Lambda
+        env:
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+          LAMBDA_ROLE_ARN: ${{ secrets.LAMBDA_ROLE_ARN }}
+          SQS_QUEUE_NAME: ${{ secrets.SQS_QUEUE_NAME }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          LAMBDA_MEMORY: ${{ vars.LAMBDA_MEMORY || '128' }}
+          LAMBDA_TIMEOUT: ${{ vars.LAMBDA_TIMEOUT || '30' }}
+          LAMBDA_ARCHITECTURE: ${{ vars.LAMBDA_ARCHITECTURE || 'arm64' }}
+        run: |
+          chmod +x scripts/deploy.sh
+          ./scripts/deploy.sh
+
+      - name: Test Lambda function
+        env:
+          LAMBDA_FUNCTION_NAME: ${{ secrets.LAMBDA_FUNCTION_NAME }}
+        run: |
+          echo "Invoking Lambda function for smoke test..."
+          aws lambda invoke \
+            --function-name "$LAMBDA_FUNCTION_NAME" \
+            --payload '{"Records":[{"messageId":"test-message-id","body":"{\"level\":\"info\",\"service\":\"ci-cd\",\"message\":\"Deployment successful from GitHub Actions\",\"timestamp\":\"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"}"}]}' \
+            --region ${{ secrets.AWS_REGION }} \
+            response.json
+          
+          echo "Lambda response:"
+          cat response.json
+          
+          # Check for errors in response
+          if grep -q "errorMessage" response.json; then
+            echo "Lambda invocation failed!"
+            cat response.json
+            exit 1
+          fi
+          
+          echo "Lambda invocation successful!"
+
+      - name: Deployment summary
+        run: |
+          echo "### Deployment Summary :rocket:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Function Name:** ${{ secrets.LAMBDA_FUNCTION_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Region:** ${{ secrets.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Deployment completed successfully!" >> $GITHUB_STEP_SUMMARY
+
