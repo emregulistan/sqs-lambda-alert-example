@@ -118,10 +118,29 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           echo "Invoking Lambda function for smoke test..."
+          
+          # Create test payload
+          TEST_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          PAYLOAD=$(cat <<EOF
+          {
+            "Records": [
+              {
+                "messageId": "test-message-id",
+                "body": "{\"level\":\"info\",\"service\":\"ci-cd\",\"message\":\"Deployment successful from GitHub Actions\",\"timestamp\":\"$TEST_TIMESTAMP\"}"
+              }
+            ]
+          }
+          EOF
+          )
+          
+          # Save payload to file and invoke Lambda
+          echo "$PAYLOAD" > test-payload.json
+          
           aws lambda invoke \
             --function-name "$LAMBDA_FUNCTION_NAME" \
-            --payload '{"Records":[{"messageId":"test-message-id","body":"{\"level\":\"info\",\"service\":\"ci-cd\",\"message\":\"Deployment successful from GitHub Actions\",\"timestamp\":\"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\"}"}]}' \
-            --region $AWS_REGION \
+            --payload file://test-payload.json \
+            --region "$AWS_REGION" \
+            --cli-binary-format raw-in-base64-out \
             response.json
           
           echo "Lambda response:"
@@ -131,10 +150,12 @@ jobs:
           if grep -q "errorMessage" response.json; then
             echo "Lambda invocation failed!"
             cat response.json
+            rm -f test-payload.json response.json
             exit 1
           fi
           
           echo "Lambda invocation successful!"
+          rm -f test-payload.json response.json
 
       - name: Deployment summary
         run: |
